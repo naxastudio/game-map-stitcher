@@ -960,41 +960,13 @@ async function placeRandomImages(sourceImages, options) {
   setStatus(t("aiPlaced", placementsById.size, sourceImages.length));
   await waitForUi();
 
-  let changed = true;
-  while (changed && placementsById.size < sourceImages.length) {
-    changed = false;
+  while (placementsById.size < sourceImages.length) {
+    const plan = findBestPlacementPlan(placementsById, edges);
+    if (!plan) break;
 
-    for (const edge of edges) {
-      const fromPlacement = placementsById.get(edge.from.id);
-      const toPlacement = placementsById.get(edge.to.id);
-
-      if (fromPlacement && !toPlacement) {
-        const proposed = {
-          image: edge.to,
-          x: Math.round(fromPlacement.x + edge.dx),
-          y: Math.round(fromPlacement.y + edge.dy)
-        };
-        if (isPlacementAcceptable(proposed, Array.from(placementsById.values()))) {
-          placementsById.set(edge.to.id, proposed);
-          changed = true;
-        }
-      } else if (!fromPlacement && toPlacement) {
-        const proposed = {
-          image: edge.from,
-          x: Math.round(toPlacement.x - edge.dx),
-          y: Math.round(toPlacement.y - edge.dy)
-        };
-        if (isPlacementAcceptable(proposed, Array.from(placementsById.values()))) {
-          placementsById.set(edge.from.id, proposed);
-          changed = true;
-        }
-      }
-
-      if (changed) {
-        setStatus(t("aiPlaced", placementsById.size, sourceImages.length));
-        await waitForUi();
-      }
-    }
+    placementsById.set(plan.placement.image.id, plan.placement);
+    setStatus(t("aiPlaced", placementsById.size, sourceImages.length));
+    await waitForUi();
   }
 
   const placements = Array.from(placementsById.values());
@@ -1010,6 +982,106 @@ async function placeRandomImages(sourceImages, options) {
   }
 
   return placements;
+}
+
+function findBestPlacementPlan(placementsById, edges) {
+  const placed = Array.from(placementsById.values());
+  let bestPlan = null;
+
+  for (const edge of edges) {
+    const proposed = proposePlacementFromEdge(edge, placementsById);
+    if (!proposed) continue;
+    if (!isPlacementAcceptable(proposed, placed)) continue;
+
+    const score = scorePlacementPlan(proposed, edge, placed, edges);
+    if (!bestPlan || score < bestPlan.score) {
+      bestPlan = { placement: proposed, score };
+    }
+  }
+
+  return bestPlan;
+}
+
+function proposePlacementFromEdge(edge, placementsById) {
+  const fromPlacement = placementsById.get(edge.from.id);
+  const toPlacement = placementsById.get(edge.to.id);
+
+  if (fromPlacement && !toPlacement) {
+    return {
+      image: edge.to,
+      x: Math.round(fromPlacement.x + edge.dx),
+      y: Math.round(fromPlacement.y + edge.dy)
+    };
+  }
+
+  if (!fromPlacement && toPlacement) {
+    return {
+      image: edge.from,
+      x: Math.round(toPlacement.x - edge.dx),
+      y: Math.round(toPlacement.y - edge.dy)
+    };
+  }
+
+  return null;
+}
+
+function scorePlacementPlan(candidate, anchorEdge, placed, edges) {
+  const anchorBonus = Math.max(1, anchorEdge.confidence || anchorEdge.inliers || 1);
+  let score = anchorEdge.score / Math.sqrt(anchorBonus);
+  score += getCollisionPenalty({
+    x: candidate.x,
+    y: candidate.y,
+    candidate: candidate.image
+  }, placed, null);
+
+  let checks = 0;
+  let totalError = 0;
+  for (const placement of placed) {
+    const relation = findEdgeBetween(candidate.image, placement.image, edges);
+    if (!relation) continue;
+
+    const error = getRelationError(candidate, placement, relation);
+    const allowed = Math.max(18, Math.min(candidate.image.width, candidate.image.height) * 0.08);
+    const excess = Math.max(0, error - allowed);
+    totalError += excess * excess;
+    checks += 1;
+  }
+
+  if (checks > 0) {
+    score += totalError / checks;
+    score /= 1 + Math.min(checks, 4) * 0.12;
+  }
+
+  return score;
+}
+
+function findEdgeBetween(a, b, edges) {
+  let best = null;
+  for (const edge of edges) {
+    const samePair = (edge.from.id === a.id && edge.to.id === b.id) || (edge.from.id === b.id && edge.to.id === a.id);
+    if (!samePair) continue;
+    if (!best || edge.score < best.score) best = edge;
+  }
+  return best;
+}
+
+function getRelationError(candidate, placed, edge) {
+  let expectedX;
+  let expectedY;
+
+  if (edge.from.id === placed.image.id && edge.to.id === candidate.image.id) {
+    expectedX = placed.x + edge.dx;
+    expectedY = placed.y + edge.dy;
+  } else if (edge.to.id === placed.image.id && edge.from.id === candidate.image.id) {
+    expectedX = placed.x - edge.dx;
+    expectedY = placed.y - edge.dy;
+  } else {
+    return 0;
+  }
+
+  const dx = candidate.x - expectedX;
+  const dy = candidate.y - expectedY;
+  return Math.hypot(dx, dy);
 }
 
 async function buildPositionEdges(sourceImages, options) {
