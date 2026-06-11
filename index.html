@@ -1,0 +1,144 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>游戏地图拼接器</title>
+    <link rel="stylesheet" href="styles.css">
+  </head>
+  <body>
+    <main class="app">
+      <aside class="panel">
+        <header class="brand">
+          <div class="brand-row">
+            <h1 data-i18n="appTitle">游戏地图拼接器</h1>
+            <button id="languageToggle" class="language-toggle" type="button">EN</button>
+          </div>
+          <p data-i18n="appSubtitle">上传地图截图，自动寻找重叠区域并导出完整大图。</p>
+        </header>
+
+        <section class="control-group">
+          <label class="drop-zone" for="files">
+            <span data-i18n="chooseImages">选择截图</span>
+            <small data-i18n="chooseImagesHint">支持 PNG / JPG，可点击或拖入多张图片</small>
+          </label>
+          <input id="files" type="file" accept="image/png,image/jpeg,image/webp" multiple>
+        </section>
+
+        <section class="control-group">
+          <h2 data-i18n="stitchMode">拼接方式</h2>
+          <div class="segmented" role="radiogroup" aria-label="拼接方式">
+            <label><input type="radio" name="mode" value="horizontal" checked><span data-i18n="modeHorizontal">横向</span></label>
+            <label><input type="radio" name="mode" value="vertical"><span data-i18n="modeVertical">纵向</span></label>
+            <label><input type="radio" name="mode" value="grid"><span data-i18n="modeGrid">网格</span></label>
+            <label><input type="radio" name="mode" value="random"><span data-i18n="modeRandom">多图随机</span></label>
+            <label><input type="radio" name="mode" value="coordinate"><span data-i18n="modeCoordinate">坐标拼接</span></label>
+          </div>
+        </section>
+
+        <section class="control-group grid-settings" hidden>
+          <h2 data-i18n="gridSettings">网格设置</h2>
+          <div class="two-cols">
+            <label>
+              <span data-i18n="rows">行数</span>
+              <input id="rows" type="number" min="1" value="2">
+            </label>
+            <label>
+              <span data-i18n="cols">列数</span>
+              <input id="cols" type="number" min="1" value="3">
+            </label>
+          </div>
+        </section>
+
+        <section class="control-group coordinate-settings" hidden>
+          <h2 data-i18n="coordinateSettings">坐标设置</h2>
+          <div class="two-cols">
+            <label>
+              <span data-i18n="pixelsPerCoord">每坐标像素</span>
+              <input id="coordScale" type="number" min="1" value="10">
+            </label>
+            <label>
+              <span data-i18n="yAxis">Y 轴方向</span>
+              <select id="coordYDirection">
+                <option value="down" data-i18n="yDown">向下增加</option>
+                <option value="up" data-i18n="yUp">向上增加</option>
+              </select>
+            </label>
+          </div>
+          <button id="detectCoords" type="button" disabled data-i18n="detectCoords">自动识别图上坐标</button>
+        </section>
+
+        <section class="control-group">
+          <h2 data-i18n="matchSettings">匹配设置</h2>
+          <label class="checkbox-line">
+            <input id="autoSort" type="checkbox" checked>
+            <span data-i18n="autoSort">自动判断截图顺序</span>
+          </label>
+          <label class="checkbox-line">
+            <input id="alphaMasks" type="checkbox" checked>
+            <span data-i18n="alphaMasks">Alpha 蒙版融合</span>
+          </label>
+          <label class="checkbox-line">
+            <input id="autoCrop" type="checkbox" checked>
+            <span data-i18n="autoCrop">自动裁掉边框</span>
+          </label>
+          <label>
+            <span data-i18n="minOverlap">最小重叠</span>
+            <input id="minOverlap" type="range" min="5" max="70" value="15">
+            <output id="minOverlapValue">15%</output>
+          </label>
+          <label>
+            <span data-i18n="maxOverlap">最大重叠</span>
+            <input id="maxOverlap" type="range" min="10" max="85" value="55">
+            <output id="maxOverlapValue">55%</output>
+          </label>
+          <label>
+            <span data-i18n="matchEngine">匹配引擎</span>
+            <select id="matchEngine">
+              <option value="pixel" selected data-i18n="enginePixel">像素重叠</option>
+              <option value="features" data-i18n="engineFeatures">特征点匹配（SIFT/ORB）</option>
+            </select>
+          </label>
+          <label>
+            <span data-i18n="samplePrecision">采样精度</span>
+            <select id="sampleStep">
+              <option value="12" data-i18n="precisionFast">快速</option>
+              <option value="8" selected data-i18n="precisionBalanced">均衡</option>
+              <option value="5" data-i18n="precisionAccurate">更准</option>
+            </select>
+          </label>
+          <p id="opencvStatus" class="helper-status"></p>
+        </section>
+
+        <section class="control-group">
+          <h2 data-i18n="imageOrder">截图顺序</h2>
+          <div id="thumbs" class="thumbs empty" data-i18n="noImages">还没有上传截图</div>
+        </section>
+
+        <div class="actions">
+          <button id="stitch" class="primary" type="button" data-i18n="generateMap">生成地图</button>
+          <button id="manualLayout" type="button" disabled data-i18n="manualLayout">直接手动摆放</button>
+          <button id="editToggle" type="button" disabled data-i18n="manualAdjust">手动微调</button>
+          <button id="download" type="button" disabled data-i18n="downloadPng">下载 PNG</button>
+          <button id="demo" type="button" data-i18n="loadDemo">载入测试截图</button>
+          <button id="randomDemo" type="button" data-i18n="randomDemo">随机测试截图</button>
+        </div>
+
+        <p id="status" class="status" data-i18n="waiting">等待上传截图。</p>
+      </aside>
+
+      <section class="workspace">
+        <div class="canvas-shell">
+          <canvas id="preview"></canvas>
+          <div id="emptyState" class="empty-state">
+            <strong data-i18n="previewArea">预览区域</strong>
+            <span data-i18n="previewHint">上传至少两张有重叠的游戏截图后生成地图。</span>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <script async src="https://docs.opencv.org/4.x/opencv.js" onload="window.onOpenCvScriptLoaded && window.onOpenCvScriptLoaded()"></script>
+    <script src="app.js"></script>
+  </body>
+</html>
